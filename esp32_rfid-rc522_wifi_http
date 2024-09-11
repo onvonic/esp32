@@ -1,3 +1,16 @@
+// LIBRARY 
+// - MFRC522 by github community
+//
+// | RC522 (RFID) | ESP32 DEVKIT V1 |
+// |--------------|-----------------|
+// | 3v3          | 3v3             |
+// | RST          | G22             |
+// | GND          | GND             |
+// | MISO         | G19             |
+// | MOSI         | G23             |
+// | SCK          | G18             |
+// | SDA          | G21             |
+
 #include <SPI.h>
 #include <MFRC522.h>
 #include <WiFi.h>

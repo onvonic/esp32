@@ -14,131 +14,100 @@
 // ----------------------------------------
 // Memasukkan library yang diperlukan.
 // ----------------------------------------
-#include <LiquidCrystal_I2C.h>  // Library untuk LCD I2C
-#include "HX711.h"              // Library untuk sensor berat HX711
-#include <Preferences.h>        // Library untuk menyimpan data di memori flash
-// ----------------------------------------
-// Mendefinisikan PIN yang terhubung antara HX711 dan ESP32.
-// ----------------------------------------
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "HX711.h"
+#include <Preferences.h>
+
+// Pin Definitions
 #define LOADCELL_DOUT_PIN 5
 #define LOADCELL_SCK_PIN  18
-//----------------------------------------
-
-// Mendefinisikan PIN untuk tombol MODE.
 #define BTN_MODE_PIN 15
-// Mendefinisikan berat objek yang diketahui untuk proses kalibrasi (dalam gram).
-#define weight_of_object_for_calibration 1000
-// Variabel untuk menyimpan hasil penimbangan.
-int weight_In_g;        // Berat dalam gram
-int last_weight_In_g;   // Berat terakhir dalam gram
-float weight_In_kg;     // Berat dalam kilogram
+#define SDA_PIN 25
+#define SCL_PIN 26
 
-// Inisialisasi LCD I2C (alamat 0x27, 16 kolom x 2 baris).
+// Constants
+#define WEIGHT_OF_OBJECT_FOR_CALIBRATION 1000
+
+// Variables
+int weight_In_g = 0;
+int last_weight_In_g = 0;
+float weight_In_kg = 0.0;
+float LOAD_CALIBRATION_FACTOR = 0.0;
+
+// Objects
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-// Inisialisasi objek HX711.
 HX711 LOADCELL_HX711;
-// Inisialisasi objek Preferences untuk menyimpan data kalibrasi.
 Preferences preferences;
 
-// Variabel untuk menyimpan faktor kalibrasi.
-float LOAD_CALIBRATION_FACTOR;
-// -----------------------------------------------------------------------------------------
-// scale_Tare()
-// -----------------------------------------------------------------------------------------
-void scale_Tare() {
-  // Fungsi untuk melakukan tare (mengatur berat ke nol)
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Tare...");
-  delay(1000);
+// Function Prototypes
+void scanI2CDevices();
+void scale_Tare();
+void loadcell_Calibration();
+float getAverageWeight(int num_samples);
 
-  if (LOADCELL_HX711.is_ready()) {
-    LOADCELL_HX711.tare(); 
-    // Mengatur skala ke 0.
-  } else {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Error: HX711");
-    lcd.setCursor(0, 1);
-    lcd.print("tidak ditemukan");
-    while (1) {
-      delay(1000);
-    }
-  }
-}
-// -----------------------------------------------------------------------------------------
-// loadcell_Calibration()
-// -----------------------------------------------------------------------------------------
-void loadcell_Calibration() {
-  // Fungsi untuk melakukan kalibrasi loadcell
-  // ... (kode kalibrasi tetap sama)
-}
-// -----------------------------------------------------------------------------------------
-// Fungsi untuk mengambil rata-rata pembacaan berat
-// -----------------------------------------------------------------------------------------
-float getAverageWeight(int num_samples = 10) {
-  float total_weight = 0;
-  for (int i = 0; i < num_samples; i++) {
-    if (LOADCELL_HX711.wait_ready_timeout(100)) {
-      total_weight += LOADCELL_HX711.get_units(2); // Ambil 2 pembacaan rata-rata
-    }
-    delay(10); // Penundaan kecil antar pembacaan
-  }
-  return total_weight / num_samples;
-}
-// -----------------------------------------------------------------------------------------
-// VOID SETUP()
-// -----------------------------------------------------------------------------------------
 void setup() {
-  // Kode setup
   Serial.begin(115200);
+  Serial.println("Starting setup...");
+  
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Serial.println("Wire initialized");
+  
+  scanI2CDevices();
+  
   pinMode(BTN_MODE_PIN, INPUT_PULLUP);
-  // Membuka Preferences untuk menyimpan data kalibrasi
+  
   preferences.begin("CF", false);
   LOAD_CALIBRATION_FACTOR = preferences.getFloat("CFVal", 0);
-  // Inisialisasi LCD
+  Serial.println("Calibration factor loaded: " + String(LOAD_CALIBRATION_FACTOR));
+  
   lcd.init();
   lcd.backlight();
-  // Inisialisasi HX711
+  Serial.println("LCD initialized");
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("LCD OK");
+  Serial.println("LCD test message displayed");
+  delay(2000);
+  
   LOADCELL_HX711.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
   LOADCELL_HX711.set_scale(LOAD_CALIBRATION_FACTOR);
   LOADCELL_HX711.tare();
+  Serial.println("HX711 initialized");
+  
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Timbangan siap");
   lcd.setCursor(0, 1);
   lcd.print("digunakan");
+  Serial.println("Scale ready message displayed");
   delay(2000);
   lcd.clear();
+  
+  Serial.println("Setup complete");
 }
-// --------------------------------------------------------------------------------
-// VOID LOOP()
-// --------------------------------------------------------------------------------
+
 void loop() {
-  // Membaca berat dari sensor dengan rata-rata
-  weight_In_g = getAverageWeight(10); // Mengambil rata-rata dari 10 pembacaan
+  weight_In_g = getAverageWeight(10);
   weight_In_kg = float(weight_In_g) / 1000;
 
-  // Memperbarui tampilan LCD jika berat berubah
   if (last_weight_In_g != weight_In_g) {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Weight:");
     
-    // Menampilkan berat dalam kg dengan format yang sesuai pada LCD
     lcd.setCursor(0, 1);
-    lcd.print(weight_In_kg, 2);  // Mengatur 2 angka di belakang koma
+    lcd.print(weight_In_kg, 2);
     lcd.print(" kg");
     
-    // Menampilkan berat dalam kg pada Serial Monitor
     Serial.print("Weight: ");
-    Serial.print(weight_In_kg, 2);  // Mengatur 2 angka di belakang koma
+    Serial.print(weight_In_kg, 2);
     Serial.println(" kg");
   }
 
   last_weight_In_g = weight_In_g;
 
-  // Mengecek tombol MODE untuk tare atau kalibrasi
   if (digitalRead(BTN_MODE_PIN) == LOW) {
     byte btn_mode_cnt = 0;
 
@@ -152,4 +121,115 @@ void loop() {
     }
     if (btn_mode_cnt < 3) scale_Tare();
   }
+}
+
+void scanI2CDevices() {
+  byte error, address;
+  int nDevices = 0;
+
+  Serial.println("Scanning I2C devices...");
+
+  for(address = 1; address < 127; address++ ) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0) {
+      Serial.print("I2C device found at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.print(address, HEX);
+      Serial.println("  !");
+      nDevices++;
+    }
+    else if (error == 4) {
+      Serial.print("Unknown error at address 0x");
+      if (address < 16) Serial.print("0");
+      Serial.println(address, HEX);
+    }    
+  }
+  if (nDevices == 0)
+    Serial.println("No I2C devices found\n");
+  else
+    Serial.println("I2C scan complete\n");
+}
+
+void scale_Tare() {
+  Serial.println("Starting tare process...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Tare...");
+  delay(1000);
+
+  if (LOADCELL_HX711.is_ready()) {
+    LOADCELL_HX711.tare();
+    Serial.println("Tare complete");
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Error: HX711");
+    lcd.setCursor(0, 1);
+    lcd.print("tidak ditemukan");
+    Serial.println("Error: HX711 not found");
+    while (1) {
+      delay(1000);
+    }
+  }
+}
+
+void loadcell_Calibration() {
+  Serial.println("Starting calibration process...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Calibrating...");
+  lcd.setCursor(0, 1);
+  lcd.print("Please wait");
+
+  LOADCELL_HX711.set_scale();
+  LOADCELL_HX711.tare();
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Place known");
+  lcd.setCursor(0, 1);
+  lcd.print("weight on scale");
+
+  delay(5000);
+
+  long reading = LOADCELL_HX711.get_units(10);
+  
+  if (reading != 0) {
+    LOAD_CALIBRATION_FACTOR = float(reading) / WEIGHT_OF_OBJECT_FOR_CALIBRATION;
+    LOADCELL_HX711.set_scale(LOAD_CALIBRATION_FACTOR);
+    
+    preferences.putFloat("CFVal", LOAD_CALIBRATION_FACTOR);
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Calibration");
+    lcd.setCursor(0, 1);
+    lcd.print("Complete");
+    
+    Serial.println("Calibration complete. Factor: " + String(LOAD_CALIBRATION_FACTOR));
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Calibration");
+    lcd.setCursor(0, 1);
+    lcd.print("Failed");
+    Serial.println("Calibration failed. Reading was 0.");
+  }
+
+  delay(2000);
+}
+
+float getAverageWeight(int num_samples) {
+  float total_weight = 0;
+  for (int i = 0; i < num_samples; i++) {
+    if (LOADCELL_HX711.wait_ready_timeout(100)) {
+      total_weight += LOADCELL_HX711.get_units(2);
+    } else {
+      Serial.println("HX711 not found in getAverageWeight");
+    }
+    delay(10);
+  }
+  return total_weight / num_samples;
 }

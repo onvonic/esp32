@@ -1,0 +1,177 @@
+// Define GSM modem model before including TinyGsmClient
+#define TINY_GSM_MODEM_SIM800
+
+#include <TinyGPS++.h>
+#include <TinyGsmClient.h>
+
+const char apn[]      = "internet";
+const char gprsUser[] = ""; 
+const char gprsPass[] = "";
+const char simPIN[]   = ""; 
+
+// Server details
+const char server[]   = "gps.onvonic.com";
+const int  port       = 80;
+
+// TTGO T-Call pins
+#define MODEM_RST            5
+#define MODEM_PWKEY          4
+#define MODEM_POWER_ON       23
+#define MODEM_TX             2
+#define MODEM_RX             4
+#define I2C_SDA              21
+#define I2C_SCL              22
+
+#define I2C_SDA_2            18
+#define I2C_SCL_2            19
+
+// GPS Module pins
+#define RXD2 16
+#define TXD2 17
+
+// Set serial for debug console (to Serial Monitor, default speed 115200)
+#define SerialMon Serial
+// Set serial for AT commands (to SIM800 module)
+#define SerialAT Serial1
+
+// Configure TinyGSM library
+#define TINY_GSM_RX_BUFFER   1024  // Set RX buffer to 1Kb
+
+#include <Wire.h>
+
+#ifdef DUMP_AT_COMMANDS
+  #include <StreamDebugger.h>
+  StreamDebugger debugger(SerialAT, SerialMon);
+  TinyGsm modem(debugger);
+#else
+  TinyGsm modem(SerialAT);
+#endif
+
+// TinyGSM Client for Internet connection
+TinyGsmClient client(modem);
+
+// GPS
+TinyGPSPlus gps;
+unsigned long lastPrintTime = 0;
+const unsigned long printInterval = 10000;
+
+#define uS_TO_S_FACTOR 1000000UL   /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP  10        /* Time ESP32 will go to sleep (in seconds) 3600 seconds = 1 hour */
+
+void setup() {
+  // Set serial monitor debugging window baud rate to 115200
+  SerialMon.begin(115200);
+  
+  // Set up GPS
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  SerialMon.println("GPS Mulai");
+  
+  // Set modem reset, enable, power pins
+  pinMode(MODEM_PWKEY, OUTPUT);
+  pinMode(MODEM_RST, OUTPUT);
+  pinMode(MODEM_POWER_ON, OUTPUT);
+  digitalWrite(MODEM_PWKEY, LOW);
+  digitalWrite(MODEM_RST, HIGH);
+  digitalWrite(MODEM_POWER_ON, HIGH);
+
+  // Set GSM module baud rate and UART pins
+  SerialAT.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
+  delay(3000);
+  
+  // Restart SIM800 module, it takes quite some time
+  SerialMon.println("Initializing modem...");
+  modem.restart();
+  
+  // Unlock your SIM card with a PIN if needed
+  if (strlen(simPIN) && modem.getSimStatus() != 3 ) {
+    modem.simUnlock(simPIN);
+  }
+  
+  // Configure the wake up source as timer wake up  
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+}
+
+void loop() {
+  // Read GPS data
+  while (Serial2.available() > 0) {
+    gps.encode(Serial2.read());
+  }
+
+  if (millis() - lastPrintTime >= printInterval) {
+    printGPSData();
+    lastPrintTime = millis();
+    
+    // After printing GPS data, send it to the server
+    sendDataToServer();
+  }
+}
+
+void printGPSData() {
+  if (gps.location.isValid()) {
+    SerialMon.print("Latitude: ");
+    SerialMon.println(gps.location.lat(), 6);
+    SerialMon.print("Longitude: ");
+    SerialMon.println(gps.location.lng(), 6);
+    SerialMon.println();
+  } else {
+    SerialMon.println("Lokasi: Tidak Valid");
+    SerialMon.println();
+  }
+}
+
+void sendDataToServer() {
+  SerialMon.print("Connecting to APN: ");
+  SerialMon.print(apn);
+  if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+    SerialMon.println(" fail");
+    return;
+  }
+  SerialMon.println(" OK");
+  
+  SerialMon.print("Connecting to ");
+  SerialMon.print(server);
+  if (!client.connect(server, port)) {
+    SerialMon.println(" fail");
+    return;
+  }
+  SerialMon.println(" OK");
+
+  // Making an HTTP POST request
+  SerialMon.println("Performing HTTP POST request...");
+  
+  // Construct the resource string with GPS data
+  String resourceString;
+  if (gps.location.isValid()) {
+    resourceString = String("/index.php?latitude=") + String(gps.location.lat(), 7) + 
+                     "&longitude=" + String(gps.location.lng(), 7) + "&iot_device=GPSD545";
+  } else {
+    resourceString = String("/index.php?latitude=INVALID&longitude=INVALID&iot_device=GPSD545");
+  }
+  
+  client.print(String("POST ") + resourceString + " HTTP/1.1\r\n");
+  client.print(String("Host: ") + server + "\r\n");
+  client.println("Connection: close");
+  client.println("Content-Type: application/x-www-form-urlencoded");
+  client.print("Content-Length: ");
+  client.println("0");
+  client.println();
+  
+  unsigned long timeout = millis();
+  while (client.connected() && millis() - timeout < 10000L) {
+    while (client.available()) {
+      char c = client.read();
+      SerialMon.print(c);
+      timeout = millis();
+    }
+  }
+  SerialMon.println();
+  
+  // Close client and disconnect
+  client.stop();
+  SerialMon.println(F("Server disconnected"));
+  modem.gprsDisconnect();
+  SerialMon.println(F("GPRS disconnected"));
+  
+  // Put ESP32 into deep sleep mode (with timer wake up)
+  esp_deep_sleep_start();
+}

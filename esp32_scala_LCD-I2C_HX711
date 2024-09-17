@@ -7,8 +7,8 @@
 // XPW HX711 GND - GND
 // XPW HX711 VCC - 3V3
 //
-// LCD SDA - G21 
-// LCD SCL - G22
+// LCD SDA - G25 
+// LCD SCL - G26
 // LCD VCC - 5V
 // LCD GND - GND
 

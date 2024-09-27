@@ -2,8 +2,8 @@
 // BTN_MODE_PIN Kiri GND From HX711
 // BTN_MODE_PIN Kiri GND To ESP32
 //
-// XPW HX711 DT - G5 
-// XPW HX711 SCK - G18
+// XPW HX711 DT - G32 
+// XPW HX711 SCK - G27
 // XPW HX711 GND - GND
 // XPW HX711 VCC - 3V3
 //
@@ -18,8 +18,8 @@
 #include <Preferences.h>
 
 // Pin Definitions
-#define LOADCELL_DOUT_PIN 32  // Changed from 5
-#define LOADCELL_SCK_PIN  27  // Changed from 18
+#define LOADCELL_DOUT_PIN 32
+#define LOADCELL_SCK_PIN  27
 #define BTN_MODE_PIN 15
 #define SDA_PIN 25
 #define SCL_PIN 26

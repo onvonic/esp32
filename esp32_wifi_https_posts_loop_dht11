@@ -1,3 +1,157 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "DHT.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// WiFi credentials
+//const char* ssid = "Ans23";
+//const char* password = "ans232323";
+const char* ssid = "ETHAN";
+const char* password = "000000008";
+
+// DHT11 setup
+#define DHTPIN 4  // Menggunakan pin G4 (GPIO 4)
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+// LCD setup
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// Timing variables
+unsigned long lastDisplayTime = 0;
+unsigned long lastApiTime = 0;
+unsigned long sendingDisplayTime = 0;
+const unsigned long DISPLAY_INTERVAL = 1000; // 1 detik
+const unsigned long API_INTERVAL = 300000; // 5 menit (300000 ms)
+const unsigned long SENDING_DISPLAY_TIME = 3000; // 1 detik untuk tampilan "Sending..."
+
+bool isSending = false;
+
+void setup() {
+    Serial.begin(115200);
+    dht.begin();
+    
+    // Inisialisasi LCD
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Temp & Humidity");
+
+    // Connect to WiFi
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, password);
+    
+    // Wait for 10 seconds to connect to WiFi
+    int wifiTimeout = 10;
+    while (WiFi.status() != WL_CONNECTED && wifiTimeout > 0) {
+        delay(1000);
+        Serial.print(".");
+        wifiTimeout--;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("");
+        Serial.println("WiFi connected.");
+        Serial.println("IP address: ");
+        Serial.println(WiFi.localIP());
+    } else {
+        Serial.println("");
+        Serial.println("WiFi connection failed. Continuing without WiFi.");
+    }
+}
+
+void displaySensorData(float temperature, float humidity) {
+    // Display on Serial Monitor
+    Serial.print("Temperature: ");
+    Serial.print(temperature);
+    Serial.print("ºC, Humidity: ");
+    Serial.print(humidity);
+    Serial.println("%");
+    
+    // Display on LCD
+    lcd.setCursor(0, 1);
+    lcd.print("T:");
+    lcd.print(temperature, 1);
+    lcd.print("C ");
+    lcd.print("H:");
+    lcd.print(humidity, 1);
+    lcd.print("%    ");  // Extra spaces to clear any previous characters
+}
+
+void displaySendingStatus() {
+    // Display on Serial Monitor
+    Serial.println("Sending data...");
+    
+    // Display on LCD
+    lcd.setCursor(0, 1);
+    lcd.print("Sending data...  ");
+}
+
+void loop() {
+    unsigned long currentTime = millis();
+    
+    // Read sensor data
+    float humidity = dht.readHumidity();
+    float temperature = dht.readTemperature();
+    
+    if (isnan(humidity) || isnan(temperature)) {
+        Serial.println("Failed to read from DHT sensor!");
+        return;
+    }
+
+    // Check if we're in sending mode
+    if (isSending) {
+        if (currentTime - sendingDisplayTime >= SENDING_DISPLAY_TIME) {
+            isSending = false;
+            displaySensorData(temperature, humidity);
+        }
+    } 
+    // Normal display update every second
+    else if (currentTime - lastDisplayTime >= DISPLAY_INTERVAL) {
+        displaySensorData(temperature, humidity);
+        lastDisplayTime = currentTime;
+    }
+
+    // Send data to API every 5 minutes if WiFi is connected
+    if (currentTime - lastApiTime >= API_INTERVAL && WiFi.status() == WL_CONNECTED) {
+        // Set sending flag and update display
+        isSending = true;
+        sendingDisplayTime = currentTime;
+        displaySendingStatus();
+
+        // Send data to API
+        HTTPClient http;
+        http.begin("https://temperature-monitoring.staging.onvonic.com/api/history/store");
+        http.addHeader("Content-Type", "application/json");
+        
+        DynamicJsonDocument jsonDoc(1024);
+        jsonDoc["code_device"] = "10000001";
+        jsonDoc["temperature"] = temperature;
+        jsonDoc["humidity"] = humidity;
+        
+        String jsonData;
+        serializeJson(jsonDoc, jsonData);
+        
+        int httpResponseCode = http.POST(jsonData);
+        if (httpResponseCode > 0) {
+            String response = http.getString();
+            Serial.println("Response:");
+            Serial.println(response);
+        } else {
+            Serial.print("Error in HTTP request. HTTP Response code: ");
+            Serial.println(httpResponseCode);
+        }
+        
+        http.end();
+        lastApiTime = currentTime;
+    }
+}
+
+
+
 // ESP32 WRoom                 DHT11 Sensor
 //+------------+              +----------+
 //|     3.3V o-|--------------o VCC      
@@ -18,98 +172,3 @@
 //|      G22 o-|--------------o SCL    
 //|            |              |
 //+------------+              +----------+
-
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
-#include "DHT.h"
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-
-// WiFi credentials
-const char* ssid = "Ans23";
-const char* password = "ans232323";
-
-// DHT11 setup
-#define DHTPIN 4  // Menggunakan pin G4 (GPIO 4)
-#define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
-// LCD setup
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-
-void setup() {
-    Serial.begin(115200);
-    dht.begin();
-    
-    // Inisialisasi LCD
-    lcd.init();
-    lcd.backlight();
-    lcd.setCursor(0, 0);
-    lcd.print("Temp & Humidity");
-
-    // Connect to WiFi
-    Serial.print("Connecting to ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-    Serial.println("");
-    Serial.println("WiFi connected.");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
-}
-
-void loop() {
-    float humidity = dht.readHumidity();
-    float temperature = dht.readTemperature();
-
-    if (isnan(humidity) || isnan(temperature)) {
-        Serial.println("Failed to read from DHT sensor!");
-        return;
-    }
-
-    // Display on Serial Monitor
-    Serial.print("Temperature: ");
-    Serial.print(temperature);
-    Serial.print("ºC, Humidity: ");
-    Serial.print(humidity);
-    Serial.println("%");
-
-    // Display on LCD
-    lcd.setCursor(0, 1);
-    lcd.print("T:");
-    lcd.print(temperature, 1);
-    lcd.print("C ");
-    lcd.print("H:");
-    lcd.print(humidity, 1);
-    lcd.print("%");
-
-    // Send data to API
-    HTTPClient http;
-    http.begin("https://temperature-monitoring.staging.onvonic.com/api/history/store");
-    http.addHeader("Content-Type", "application/json");
-
-    DynamicJsonDocument jsonDoc(1024);
-    jsonDoc["code_device"] = "10000001";
-    jsonDoc["temperature"] = temperature;
-    jsonDoc["humidity"] = humidity;
-
-    String jsonData;
-    serializeJson(jsonDoc, jsonData);
-
-    int httpResponseCode = http.POST(jsonData);
-    if (httpResponseCode > 0) {
-        String response = http.getString();
-        Serial.println("Response:");
-        Serial.println(response);
-    } else {
-        Serial.print("Error in HTTP request. HTTP Response code: ");
-        Serial.println(httpResponseCode);
-    }
-    http.end();
-
-    delay(600000); // Delay for 15 menit before next measurement
-}

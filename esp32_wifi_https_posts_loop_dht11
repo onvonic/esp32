@@ -1,20 +1,52 @@
+// ESP32 WRoom                 DHT11 Sensor
+//+------------+              +----------+
+//|     3.3V o-|--------------o VCC      
+//|            |              |          
+//|      GND o-|--------------o GND      
+//|            |              |          
+//|       G4 o-|--------------o DATA     
+//|            |              |          
+
+// ESP32 WRoom                 LCD I2C Display (16x2)            
+//+------------+              +-----------------------+
+//|     3.3V o-|--------------o VCC
+//|            |              |
+//|      GND o-|--------------o GND    
+//|            |              |
+//|      G21 o-|--------------o SDA    
+//|            |              |
+//|      G22 o-|--------------o SCL    
+//|            |              |
+//+------------+              +----------+
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "DHT.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include "DHT.h"
 
 // WiFi credentials
-const char* ssid = "sinaga";
-const char* password = "1234567890";
+const char* ssid = "Ans23";
+const char* password = "ans232323";
 
 // DHT11 setup
-#define DHTPIN 16
+#define DHTPIN 4  // Menggunakan pin G4 (GPIO 4)
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
+
+// LCD setup
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 void setup() {
     Serial.begin(115200);
     dht.begin();
+    
+    // Inisialisasi LCD
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Temp & Humidity");
 
     // Connect to WiFi
     Serial.print("Connecting to ");
@@ -31,39 +63,43 @@ void setup() {
 }
 
 void loop() {
-    // Read temperature and humidity from DHT11
     float humidity = dht.readHumidity();
     float temperature = dht.readTemperature();
 
-    // Check if any reads failed and exit early (to try again).
     if (isnan(humidity) || isnan(temperature)) {
         Serial.println("Failed to read from DHT sensor!");
         return;
     }
 
-    // Print temperature and humidity
+    // Display on Serial Monitor
     Serial.print("Temperature: ");
     Serial.print(temperature);
     Serial.print("ºC, Humidity: ");
     Serial.print(humidity);
     Serial.println("%");
 
-    // Set up the HTTP client
+    // Display on LCD
+    lcd.setCursor(0, 1);
+    lcd.print("T:");
+    lcd.print(temperature, 1);
+    lcd.print("C ");
+    lcd.print("H:");
+    lcd.print(humidity, 1);
+    lcd.print("%");
+
+    // Send data to API
     HTTPClient http;
-    http.begin("https://iot.onvonic.com/api/esp32/dht11/store");
+    http.begin("https://temperature-monitoring.staging.onvonic.com/api/history/store");
     http.addHeader("Content-Type", "application/json");
 
-    // Create JSON object
     DynamicJsonDocument jsonDoc(1024);
-    jsonDoc["code_device"] = "DHT110001";
+    jsonDoc["code_device"] = "10000001";
     jsonDoc["temperature"] = temperature;
     jsonDoc["humidity"] = humidity;
 
-    // Serialize JSON to String
     String jsonData;
     serializeJson(jsonDoc, jsonData);
 
-    // Send POST request
     int httpResponseCode = http.POST(jsonData);
     if (httpResponseCode > 0) {
         String response = http.getString();
@@ -73,8 +109,7 @@ void loop() {
         Serial.print("Error in HTTP request. HTTP Response code: ");
         Serial.println(httpResponseCode);
     }
+    http.end();
 
-    http.end(); // Free the resources
-
-    delay(60000); // Delay for 5 seconds before next measurement
+    delay(600000); // Delay for 15 menit before next measurement
 }

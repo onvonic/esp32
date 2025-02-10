@@ -1,0 +1,51 @@
+#include <HardwareSerial.h>
+
+#define SIM800L_RX 4  // ESP32 TX pin ke SIM800L RX
+#define SIM800L_TX 2  // ESP32 RX pin ke SIM800L TX
+
+HardwareSerial sim800lSerial(1);
+
+void setup() {
+  Serial.begin(115200);
+  sim800lSerial.begin(9600, SERIAL_8N1, SIM800L_RX, SIM800L_TX);
+  
+  delay(3000);  // Beri waktu modul untuk inisialisasi
+  
+  Serial.println("Testing SIM800L...");
+  
+  // Test komunikasi dasar
+  sendATCommand("AT", "OK", 2000);
+  sendATCommand("AT+CSQ", "OK", 2000);       // Cek kekuatan sinyal
+  sendATCommand("AT+CPIN?", "OK", 2000);     // Cek status SIM card
+  sendATCommand("AT+CREG?", "OK", 2000);     // Cek registrasi jaringan
+  sendATCommand("AT+COPS?", "OK", 2000);     // Cek operator jaringan
+}
+
+void loop() {
+  // Tampilkan respon dari modul
+  while(sim800lSerial.available()) {
+    Serial.write(sim800lSerial.read());
+  }
+}
+
+String sendATCommand(String cmd, String resp, uint16_t timeout) {
+  sim800lSerial.println(cmd);
+  
+  uint64_t time = millis();
+  String response;
+  
+  while((millis() - time) < timeout) {
+    while(sim800lSerial.available()) {
+      char c = sim800lSerial.read();
+      response += c;
+    }
+  }
+  
+  if(response.indexOf(resp) != -1) {
+    Serial.println("Command success");
+  } else {
+    Serial.println("Command failed");
+  }
+  
+  return response;
+}
